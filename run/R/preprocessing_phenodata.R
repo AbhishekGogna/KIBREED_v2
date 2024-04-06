@@ -38,3 +38,98 @@ list(
                                    log_at = sprintf("%s/%s", core_paths[["logs_R"]], "preprocessing_phenodata"))
   )
 )
+
+# Repeatabilities 
+## Grain yield
+## Exp1
+#library(readxl)
+#library(dplyr)
+#library(hablar)
+#
+#exp_1_GY <- read_excel("/proj/ext_dir/KIBREED/source_data/Repeatability use classical formula.xlsx", sheet = "Hywheat") %>%
+#  rename(loc = LocName, year = Year, rep = Repeatability_all) %>%
+#  mutate(series = "Exp_1",
+#         trial = NA) %>%
+#  select(loc, year, trial, rep, series) %>%
+#  convert(chr(loc, trial, series),
+#          int(year),
+#          num(rep))
+#
+### Exp6
+#exp_6_GY_old <- read_excel("/proj/ext_dir/KIBREED/source_data/Repeatability use classical formula.xlsx", sheet = "KWS_OLD") %>%
+#  rename(loc = Location, year = Year, rep = Repeatability) %>%
+#  select(loc, year, rep) %>%
+#  mutate(series = "Exp_6",
+#         trial = NA)%>%
+#  select(loc, year, trial, rep, series) %>%
+#  convert(chr(loc, trial, series),
+#          int(year),
+#          num(rep))
+#
+#exp_6_GY_new <- read.table("/proj/results/R/phenotypic_data_kws_processing/rep_20_21.txt", header = TRUE) %>%
+#  filter(grepl("yield", element_name)) %>%
+#  filter(!is.na(location)) %>%
+#  mutate(loc = location,
+#         rep = value,
+#         trial = strsplit(element_name, "\\_")[[1]][2],
+#         series = "Exp_6")%>%
+#  select(loc, year, trial, rep, series) %>%
+#  convert(chr(loc, trial, series),
+#          int(year),
+#          num(rep))
+#
+### Exp 7
+#load(data_paths[["series_7"]])
+#exp_7_GY <- BLUES_traits[["YIE"]][["Repeatability"]] %>%
+#  mutate(loc = strsplit(Environment, "\\.")[[1]][2],
+#         year = strsplit(Environment, "\\.")[[1]][1],
+#         rep = Repeatibility,
+#         series = "Exp_7",
+#         trial = NA) %>%
+#  select(loc, year, trial, rep, series) %>%
+#  convert(chr(loc, trial, series),
+#          int(year),
+#          num(rep))
+#
+#all_rep_GY <- bind_rows(exp_1_GY,
+#                     exp_6_GY_old,
+#                     exp_6_GY_new,
+#                     exp_7_GY) %>% 
+#  group_by(series) %>%
+#  summarize(min_rep = round(min(rep), 2)
+#            , max_rep = round(max(rep), 2)
+#            , med_rep = round(median(rep), 2)
+#            , .groups = "drop")
+#
+### Heading date
+### Exp 6
+#exp_6_HD_new <- read.table("/proj/results/R/phenotypic_data_kws_processing/rep_20_21.txt", header = TRUE) %>%
+#  filter(grepl("head", element_name)) %>%
+#  filter(!is.na(location)) %>%
+#  mutate(loc = location,
+#         rep = value,
+#         trial = strsplit(element_name, "\\_")[[1]][2],
+#         series = "Exp_6")%>%
+#  select(loc, year, trial, rep, series) %>%
+#  convert(chr(loc, trial, series),
+#          int(year),
+#          num(rep))
+### Exp 7
+#load(data_paths[["series_7"]])
+#exp_7_HD <- BLUES_traits[["HD"]][["Repeatability"]] %>%
+#  mutate(loc = strsplit(Environment, "\\.")[[1]][2],
+#         year = strsplit(Environment, "\\.")[[1]][1],
+#         rep = Repeatibility,
+#         series = "Exp_7",
+#         trial = NA) %>%
+#  select(loc, year, trial, rep, series) %>%
+#  convert(chr(loc, trial, series),
+#          int(year),
+#          num(rep))
+#all_rep_HD <- bind_rows(exp_6_HD_new,
+#                        exp_7_HD) %>% 
+#  group_by(series) %>%
+#  summarize(min_rep = round(min(rep), 2)
+#            , max_rep = round(max(rep), 2)
+#            , med_rep = round(median(rep), 2)
+#            , .groups = "drop")

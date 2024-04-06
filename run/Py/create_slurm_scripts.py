@@ -53,7 +53,7 @@ singularity instance stop "${instancename}"
 exit'''
 
 slurm_jobs = [("acr_CNN", "acr_cv.json"),
-              ("acr_CNN", "acr_st.json"),
+              #("acr_CNN", "acr_st.json"),
               ("acr_CNN", "acr_sce.json"),
               #("acr_CNN_BN", "acr_cv.json"),
               #("acr_CNN_BN", "acr_st.json"),

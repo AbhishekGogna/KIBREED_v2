@@ -228,7 +228,8 @@ if not exists(path_to_pred_file):
                     raise Exception("Error: Failed to retrieve best models with num_models=1. Script halted.")
         best_model = top3_models[0]
         best_model.save(tuned_model_at)
-        best_model = load_model(tuned_model_at) # if you figure out a way to reset the model weights then enter that reset model here
+        best_model = load_model(tuned_model_at) # loads a model with weights to run with test set directely
+        #best_model = model_tuner(top3_params[0]) # alternative, but gives a weaker trend
  
         # clear space
         try:

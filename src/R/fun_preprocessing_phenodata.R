@@ -465,8 +465,8 @@ preprocess_phenodata <- function(paths, log_at){
              Year = as.integer(gsub("(\\S+)\\.(\\S+)\\.(\\S+)", "\\1", id, perl = T)),
              Env = paste0(Loc, "_", Exp, "_", Year),
              Type = "Lines",
-             FemaleNew = tolower(Coding),
-             MaleNew = tolower(Coding),
+             FemaleNew = tolower(genodata),
+             MaleNew = tolower(genodata),
              Geno_new = paste0(tolower(genodata), tolower(genodata)),
              "{trait_name}" := value) %>%
       select(Series, Project, Exp, Loc, Year, Env, Type, FemaleNew, MaleNew, Geno_new, all_of(trait_name))

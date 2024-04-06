@@ -614,7 +614,11 @@ get_core_set <- function(existing_data, data) {
   tmp_data <- data[["tmp_data"]]
   write_at <- data[["write_at"]]
   RD_out <- data[["RD_out"]]
-  p_wtn <- qread(existing_data[["p_wtn"]])
+  p_wtn <- qread(existing_data[["p_wtn"]]) %>%
+    rename(connect_climate = Connect_at,
+           connect_geno = connect_geno_data) %>%
+    filter(Type != "Hybrid",
+           BLUES_dt > 0)
   
   # Write a section in the log file
   cat("Starting with core sampling",
@@ -629,7 +633,7 @@ get_core_set <- function(existing_data, data) {
     rowwise() %>%
     mutate(freq = sum(c_across(where(is.numeric)), na.rm = TRUE))
   
-  overview <- table(cut(geno$freq, breaks = seq(0, 120, 10)))
+  overview <- table(cut(geno$freq, breaks = c(0, 2, 4, 8, 16, 32, 64, 128)))
   
   RD_sub <- RD_out[geno$connect_geno, geno$connect_geno]
   
@@ -659,6 +663,49 @@ get_core_set <- function(existing_data, data) {
       sep = "\n",
       append = TRUE)
   
+  # Extra table
+  ## identify best and worst performers per environment cluster?
+  core_dist <- geno %>% filter(connect_geno %in% core$sel) %>% 
+    relocate(freq, .after= "connect_geno")
+  
+  interval_size <- 3
+  
+  breaks_in <- seq(0, max(core_dist$freq) + interval_size, interval_size)
+  core_dist_series_0 <- core_dist %>% 
+    pivot_longer(!c("connect_geno", "freq"), names_to = "env") %>% 
+    filter(!is.na(value), env != "freq") %>% 
+    mutate(freq_env = freq,
+           freq_env_class_integer = cut(freq_env, breaks = breaks_in, include.lowest = TRUE, labels = FALSE),
+           freq_env_class = paste0("(", (as.numeric(freq_env_class_integer) - 1) * interval_size + 1, ", ", as.numeric(freq_env_class_integer) * interval_size, "]"), #upperbound of lower class +1 to upper bound of this class
+           series = gsub("^([[:alnum:]_]+_\\d_[[:alnum:]]+).*", "\\1", env),
+           value = 1) 
+  multi_series <- core_dist_series_0 %>%
+    select(connect_geno, freq_env_class, series) %>%
+    distinct() %>% count(connect_geno) %>% filter(n > 1)
+  core_dist_series <- core_dist_series_0 %>%
+    select(connect_geno, freq_env_class, series) %>% 
+    mutate(series = ifelse(connect_geno %in% multi_series$connect_geno, "Exp_multi", series)) %>%
+    distinct() %>%
+    group_by(freq_env_class, series) %>% 
+    summarize(freq_ser = n(), .groups = "drop") %>% 
+    pivot_wider(id_cols = freq_env_class, names_from = series, values_from = freq_ser) %>%
+    rowwise() %>%
+    mutate(class_lower_bound = as.numeric(gsub("\\((\\d+)\\,.*", "\\1", freq_env_class)),
+           total = sum(c_across(starts_with("Exp")), na.rm = TRUE)) %>%
+    ungroup() %>%
+    arrange(class_lower_bound) %>%
+    select(freq_env_class, Exp_1_Hywheat , Exp_2_Zucht, Exp_3_Zucht, Exp_4_Zucht, Exp_5_Zucht, Exp_6_KWS, Exp_7_GABI, Exp_multi, total)
+  
+  # Extra figure
+  ## how many of the core set are in the extremes
+  core_ext <- p_wtn %>%
+    mutate(present_in = ifelse(connect_geno %in% core$sel, "core", "general"))
+  core_ext_plot <- ggplot(aes(x = BLUES_dt), data = core_ext %>% filter(present_in == "general")) +
+    geom_histogram(bins = 50, fill = "#00AFBB", color = "black") +
+    geom_rug(aes(x = BLUES_dt), data = core_ext %>% filter(present_in == "core"), color = "#E7B800") +
+    labs(x= "yield (quintal per ha)", y = "frequency")+
+    theme_classic()
+    
   # Generate output
   out <- list()
   out[["log_file"]] <- log_file
@@ -667,6 +714,8 @@ get_core_set <- function(existing_data, data) {
   out[["core"]] <- core
   out[["geno_dist"]] <- geno
   out[["geno_dist_intervals"]] <- as.data.frame(overview)
+  out[["core_dist_series"]] <- core_dist_series
+  out[["core_ext_plot"]] <- core_ext_plot
   
   return(out)
 }
@@ -681,7 +730,9 @@ get_training_data <- function(existing_data, data) {
     mutate(Type = as.character(Type)) %>%    # Convert 'Type' column to character type
     mutate(Type = ifelse(Type != "Hybrid", "Non_hybrid", Type)) %>%  # Replace non-"Hybrid" values with "Non_hybrid"
     mutate(Type = as.factor(Type)) %>% # Convert 'Type' column to a factor
-    rename(env = Env,
+    rename(connect_climate = Connect_at,
+           connect_geno = connect_geno_data,
+           env = Env,
            geno = Geno_new,
            type = Type,
            site = Site,
@@ -693,7 +744,9 @@ get_training_data <- function(existing_data, data) {
            blues) %>%
     convert(fct(env, site, latlong, year, geno),
             chr(type, starts_with("connect")),
-            num(blues))
+            num(blues)) %>%
+    filter(!is.na(blues),
+           type != "Hybrid")
   
   # Write a section in the log file
   cat("Starting with defining a training data",
@@ -727,7 +780,8 @@ get_training_data <- function(existing_data, data) {
                  names_to = "geno",
                  values_to = "blues") %>%
     left_join(geno_connection, by = "geno") %>%
-    select(all_of(colnames(p_wtn)))
+    select(all_of(colnames(p_wtn))) %>%
+    mutate(set = "core")
   
   training_data <- rest %>% bind_rows(core_reformatted)
   #training_data <- core_reformatted
@@ -811,7 +865,7 @@ get_residuals <- function(existing_data, data){
   write_at <- data[["write_at"]]
   predicted_data <- data[["predicted_data"]]$pred %>%
     convert(fct(geno)) %>% 
-    filter(is.na(set)) %>%
+    filter(set == "core") %>%
     select(-set) # modify this part in training set creation where set == "core" is lost
   
   # Write a section in the log file
@@ -879,6 +933,8 @@ get_env_clusters <- function(existing_data, data, ec_path){
   colors_years <- residual_vals_wide %>% distinct(year)
   n_years <- nrow(colors_years)
   coul <- brewer.pal(n = 12, name = "Paired")[1:n_years]
+  #coul <- c("#6EB5FF", "#1E5DAB", "#7FFF7F", "#2E8B57", "#FF6347", "#CD5C5C", "#BA55D3", "#800080", "#FFD700", "#DAA520", "#FF6961")
+  
   colors_years$color <- coul
   
   residual_vals_wide <- residual_vals_wide %>%
@@ -921,61 +977,116 @@ get_env_clusters <- function(existing_data, data, ec_path){
   mds.df <- as.data.frame(mds$points)
   labs <- 100*(mds$eig/sum(mds$eig))[1:2]
   
-  k.values <- 1:20
+  k.values <- 1:50
   wss <- function(df, k) {
     k_fit <- kmeans(df, k, nstart = 10 )
+    
+    # silhouette score
+    if(k > 1){
+      s <- silhouette(k_fit$cluster, dist(df))
+      ss_mean <- mean(s[, 3])
+      ss_median <- quantile(s[, 3], probs = 0.5, names = FALSE)
+      ss_quantiles <- quantile(s[, 3], probs = c(0.25, 0.75), names = FALSE)
+    } else {
+      ss_mean <- NA
+      ss_median <- NA
+      ss_quantiles <- c(NA, NA)
+    }
+    
     out <- list()
     out[["wss"]] <- k_fit$tot.withinss
     out[["n_clust"]] <- k
     out[["min_size"]] <- min(k_fit$size) 
     out[["clusters"]] <- as.factor(k_fit$cluster)
+    out[["ss"]] <- ss_median
+    out[["ss_q25"]] <- ss_quantiles[1]
+    out[["ss_q75"]] <- ss_quantiles[2]
     return(out)
   }
   set.seed(2345)
   wss_values <- lapply(k.values, wss, df = mds.df)
   names(wss_values) <- k.values
   
+  s_vals <- sapply(wss_values, function(x) x[["ss"]])
+  s_q25 <- sapply(wss_values, function(x) x[["ss_q25"]])
+  s_q75 <- sapply(wss_values, function(x) x[["ss_q75"]])
+  max_ss <- sort(s_vals[!is.na(s_vals)], decreasing = T)[1]
+  n_ss <- as.numeric(names(max_ss))
+    
   n_clust_qual <- sapply(wss_values, function(x) x[["min_size"]])
   n_clust_0 <- n_clust_qual[which(n_clust_qual >= 3)]
   n_clust <- as.numeric(names(n_clust_0[length(n_clust_0)]))
+  wss_vals <- as.numeric(sapply(wss_values, function(x) x[["wss"]]))
+  # Initialize a variable to store the kink
+  kink <- 1
+  
+  # Loop through the vector
+  for (i in 2:length(wss_vals)) {
+    # Check if the current value is greater than the previous value
+    if (wss_vals[i] > wss_vals[i - 1]) {
+      kink <- i
+      break  # Break the loop when the condition is met
+    }
+  }
+  
+  kink_fin <- kink - 1
   
   kmean_n_clust <- data.frame("clusters" = k.values,
-                              "wss" = as.numeric(sapply(wss_values, function(x) x[["wss"]]))) %>%
+                              "wss" = wss_vals) %>%
     ggplot(aes(x = clusters, y = wss)) +
-    geom_line() +
-    geom_point() +
-    geom_vline(xintercept = n_clust) +
+    geom_line(size = 0.25) +
+    geom_point(size = 0.5) +
+    geom_vline(xintercept = n_clust, linetype="dotted", size = 0.25, color = "blue") +
+    geom_vline(xintercept = kink_fin, linetype="dotted", size = 0.25, color = "green") +
     theme_classic()
   
-  ggsave(plot = kmean_n_clust, filename = sprintf("%s/kmean_n_clust.png", write_at), 
-         width = 8.4, height = 8.4, units = "cm", dpi = 600)
+  ss_plot <- data.frame("clusters" = k.values,
+                        "ss" = s_vals,
+                        "q_25" = s_q25,
+                        "q_75" = s_q75) %>%
+    ggplot(aes(x = clusters, y = ss)) +
+    geom_errorbar(aes(ymin = q_25, ymax = q_75), size = 0.25) +
+    geom_line(size = 0.25) +
+    geom_point(size = 0.5) +
+    geom_vline(xintercept = n_clust, linetype="dotted", size = 0.25, color = "blue") +
+    geom_vline(xintercept = kink_fin, linetype="dotted", size = 0.25, color = "green") +
+    geom_vline(xintercept = n_ss, linetype="dotted", size = 0.25, color = "red") +
+    coord_cartesian(ylim = c(0, 1)) +
+    theme_classic()
+  
+  joint_ss_elbow <- ggarrange(kmean_n_clust, ss_plot,
+                              labels = c("a", "b"),
+                              font.label = list(size = 10, color = "black", face = "plain", family = NULL))
+  
+  ggsave(plot = joint_ss_elbow, filename = sprintf("%s/kmean_n_clust.png", write_at), 
+         width = 16.8, height = 8.4, units = "cm", dpi = 600)
   
   clust_plot_0 <- create_cluster_plot(mds.df = mds.df, label = "env",
                                       wss_values = wss_values,
                                       write_at = write_at, 
-                                      n_clust = 10, 
+                                      n_clust = n_clust, 
                                       labs = labs, 
                                       col_vector = col_vector)
   
   clust_plot_1 <- create_cluster_plot(mds.df = mds.df, 
                                       wss_values = wss_values,
-                                      label = NULL, 
+                                      label = "env", 
                                       write_at = write_at, 
-                                      n_clust = 10, 
+                                      n_clust = kink_fin, 
                                       labs = labs, 
                                       col_vector = col_vector)
   
   clust_plot_2 <- create_cluster_plot(mds.df = mds.df, label = "env",
                                       wss_values = wss_values,
                                       write_at = write_at, 
-                                      n_clust = 8, 
+                                      n_clust = n_ss, 
                                       labs = labs, 
                                       col_vector = col_vector)
   
   clust_plot_3 <- create_cluster_plot(mds.df = mds.df, label = "env",
                                       wss_values = wss_values,
                                       write_at = write_at, 
-                                      n_clust = 12, 
+                                      n_clust = 7, 
                                       labs = labs, 
                                       col_vector = col_vector)
   
@@ -1025,7 +1136,7 @@ get_env_clusters <- function(existing_data, data, ec_path){
       append = TRUE)
   
   # add groups to original mat
-  mds.df_0 <- as.data.frame(clust_plot_1$data) %>% 
+  mds.df_0 <- as.data.frame(clust_plot_0$data) %>% 
     tibble::rownames_to_column(var = "ids_mod") %>%
     left_join(residual_vals_wide %>% select(ids_mod, connect_climate, year, color), by = "ids_mod") %>%
     select(ids_mod, connect_climate, year, color, groups) %>%
@@ -1050,7 +1161,7 @@ get_env_clusters <- function(existing_data, data, ec_path){
     geom_point(aes(x = long, y = lat, color = as.factor(year)),
                data = mds.df_0, size = 1) +
     #scale_color_discrete(type = mds.df_0$color)+
-    labs(x = "Latitude", y = "Longitude") +
+    labs(x = "Longitude", y = "Latitude") +
     facet_wrap(~groups, nrow = 2, ncol = 5) +
     guides(color = guide_legend(title = "Year")) +
     scale_colour_manual(values=coul)
@@ -1077,6 +1188,7 @@ get_env_clusters <- function(existing_data, data, ec_path){
   out[["kmean_raw"]] <- wss_values
   out[["clust_plot"]] <- clust_plot_0
   out[["final_data"]] <- final_data
+  out[["labs"]] <- labs
   
   return(out)
 }
@@ -1099,38 +1211,80 @@ get_feature_imp_plots <- function(existing_data, data, scores_at){
                                            "90-120", "120-150", "150-180", 
                                            "180-210", "210-240", "240-270", 
                                            "270-300", "300-330"),
-                                month = c(month.name[10:12], month.name[1:8]))
+                                month = c(month.abb[10:12], month.abb[1:8]))
+  
+  full_names <- c(
+    "air_temp_5cm_avg..C.", "air_temp_5cm_max..C.",
+    "air_temp_5cm_min..C.", "air_temp_avg..C.",
+    "air_temp_max..C.", "air_temp_min..C.",
+    "dew_point_avg..C.", "dew_point_max..C.",
+    "dew_point_min..C.", "long_wave_radiation_avg..W.m.2.",
+    "long_wave_radiation_max..W.m.2.", "long_wave_radiation_min..W.m.2.",
+    "pet_period..mm.", "precip_acc_period..mm.",
+    "precip_acc_period_adjusted..mm.", "precip_acc_period_raw..mm.",
+    "relative_humidity_avg....", "relative_humidity_max....",
+    "relative_humidity_min....", "short_wave_radiation_avg..W.m.2.",
+    "short_wave_radiation_max..W.m.2.", "wind_speed_2m_avg..kph.",
+    "wind_speed_2m_max..kph.", "wind_speed_2m_min..kph.",
+    "wind_speed_avg..kph.", "wind_speed_max..kph.",
+    "wind_speed_min..kph."
+  )
+  short_names <- c(
+    "at_5_avC", "at_5_maC",
+    "at_5_miC", "at_avC",
+    "at_maC", "at_miC",
+    "dp_avC", "dp_maC",
+    "dp_miC", "lwr_avW",
+    "lwr_maW", "lwr_miW",
+    "pre_MM", "pre_a_MM",
+    "pre_ad_MM", "pre_r_MM",
+    "rh_avP", "rh_maP",
+    "rh_miP", "swr_avW",
+    "swr_maW", "ws_2_avK",
+    "ws_2_mxK", "ws_2_miK",
+    "ws_avK", "ws_maK",
+    "ws_miK"
+  )
+  var_names <- data.frame(variable = full_names, var_short = short_names)
+  
   feature_imp <- feature_imp_0 %>%
     mutate(variable = gsub("(\\S+)\\_\\(\\S+", "\\1", old, perl = T),
            period = gsub("(\\S+)\\_\\((\\S+)\\]", "\\2", old, perl = T),
            period = gsub(",", "-", period)) %>%
     left_join(period_to_month, by = "period") %>%
     #filter(period != "BLUEs_raw") %>%
-    convert(fct(variable)) %>%
+    left_join(var_names, by = "variable") %>%
+    convert(fct(var_short)) %>%
     arrange(desc(gain_scaled))
   feature_imp$period <- factor(feature_imp$period, levels = period_to_month$period)
   feature_imp$month <- factor(feature_imp$month, levels = period_to_month$month)
   
   ## mean feature importances
   feature_imp_mean <- feature_imp %>%
-    group_by(variable) %>%
+    group_by(var_short) %>%
     summarize(mean_gain_scaled = mean(gain_scaled), .groups = "drop") %>%
     arrange(desc(mean_gain_scaled))
-  feature_imp_mean$variable <- factor(feature_imp_mean$variable, levels = feature_imp_mean$variable)
+  feature_imp_mean$var_short <- factor(feature_imp_mean$var_short, levels = feature_imp_mean$var_short)
   
-  mean_imp_plot <- ggplot(data=feature_imp_mean, aes(x=variable, y=mean_gain_scaled)) +
+  mean_imp_plot <- ggplot(data=feature_imp_mean, aes(x=var_short, y=mean_gain_scaled)) +
     geom_bar(stat="identity") +
+    labs(x = "") +
+    theme_classic(base_size = 9) +
     theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
   
   ggsave(mean_imp_plot, filename = sprintf("%s/%s", write_at, "mean_imp_plot.png"),
          width = 16.8, height = 16.8, units = "cm", dpi = 600, bg = "white")
   
   ## feature importance per growth stage
-  feature_imp$variable <- factor(feature_imp$variable, levels = feature_imp_mean$variable)
-  imp_stage_plot <- ggplot(feature_imp, aes(x = variable, y = month, fill = gain_scaled)) +
+  feature_imp$var_short <- factor(feature_imp$var_short, levels = feature_imp_mean$var_short)
+  breaks_in <- c(seq(0, 0.01, 0.001), seq(0.02, 0.05, 0.01))
+  imp_stage_plot <- ggplot(feature_imp %>% rename(gain = gain_scaled), 
+                           aes(x = var_short, y = month, fill = gain)) +
     geom_tile() +
+    labs(x = "", y = "") +
+    theme_classic(base_size = 9) +
     theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
-    scale_fill_binned(limits=c(0, 0.04), breaks=seq(0,0.04,by=0.005), type = "viridis")
+    scale_fill_binned(limits=c(0, 0.04), breaks=breaks_in, type = "viridis")
   
   ggsave(imp_stage_plot, filename = sprintf("%s/%s", write_at, "imp_stage_plot.png"),
          width = 16.8, height = 16.8, units = "cm", dpi = 600, bg = "white")
@@ -1148,4 +1302,116 @@ get_feature_imp_plots <- function(existing_data, data, scores_at){
   out[["write_at"]] <- write_at
   out[["mean_imp_plot"]] <- mean_imp_plot
   out[["imp_stage_plot"]] <- imp_stage_plot
+  
+  return(out)
+}
+
+make_overview_plots <- function(existing_data, data1, data2, data3, data4){
+  # Sequester data
+  log_file <- data4[["log_file"]]
+  tmp_data <- data4[["tmp_data"]]
+  write_at <- data4[["write_at"]]
+  RD_mat <- data1$RD_out
+  p1 <- data2$core_ext_plot + theme_classic(base_size = 9) + labs(x= "Yield (quintal per ha)", y = "Frequency")
+  p2 <- data3$kmean_n_clust$data %>%
+    filter(clusters <= 20) %>%
+    ggplot(aes(x = clusters, y = wss)) +
+    geom_line(size = 0.25) +
+    geom_point(size = 0.5) +
+    geom_vline(xintercept = 9, linetype="dotted", size = 0.25) +
+    theme_classic(base_size = 9) + 
+    labs(y= "WSS", x = "Clusters")
+  
+  p3_data <- data3$clust_plot$data %>% rename(Groups = groups)
+  p3_labs <- data3$labs 
+  p4 <- data4$mean_imp_plot$data %>%
+    ggplot(aes(x=var_short, y=mean_gain_scaled)) +
+    geom_bar(stat="identity") +
+    labs(x = "") +
+    theme_classic(base_size = 9) +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+    labs(y = "Mean gain") +
+    theme(axis.text.x = element_text(angle = 90, vjust=-0.001))
+  
+  p5 <- data4$imp_stage_plot +
+    theme_classic(base_size = 9) +
+    theme(axis.text.x = element_text(angle = 90, vjust=-0.001)) +
+    labs(fill = "Gain")
+  
+  # Generate eigen decomp for RD mat. this is funneled to KIBREED data generation
+  geno <- qread(existing_data[["p_wtn"]]) %>%
+    rename(connect_climate = Connect_at,
+           connect_geno = connect_geno_data) %>%
+    filter(Type != "Hybrid",
+           BLUES_dt > 0) %>% 
+    distinct(Series, connect_geno) %>%
+    mutate(in_core = ifelse(connect_geno %in% data2$core$sel, TRUE, FALSE))
+  
+  RD_sub <- RD_mat[geno$connect_geno, geno$connect_geno]
+  if(RhpcBLASctl::get_num_cores() > 60){
+    RhpcBLASctl::blas_set_num_threads(60)
+  }
+  pc <- cmdscale(RD_sub, k = 4, eig = TRUE, add = TRUE)
+  pc_eig <- round(100*(pc$eig[1:2]/sum(pc$eig)), 2)
+  message("the many-to-one warning will be handled internally")
+  pco_data <- as.data.frame(cbind(pc$points[, 1:4], "geno" = rownames(pc$points))) %>% 
+    left_join(geno, by = c("geno" = "connect_geno")) %>%
+    group_by(geno) %>% mutate(Ser = ifelse(n() > 1, "multi", "unique")) %>% 
+    filter(row_number() == 1) %>% ungroup() %>% 
+    convert(chr(Series)) %>%
+    mutate(Series = ifelse(Ser == "multi", "multi", Series)) %>%
+    select(-Ser) %>%
+    convert(fct(Series), num(V1, V2, V3, V4))
+  
+  # Make cluster plot
+  p3 <- ggscatter(p3_data,
+                  x = "V1", 
+                  y = "V2", 
+                  xlab = paste0("PC1 = ", round(p3_labs[1], 2)," %"),
+                  ylab = paste0("PC2 = ", round(p3_labs[2], 2)," %"),
+                  #label = "env",
+                  color = "Groups",
+                  font.label = list(size = 5, face = "plain", family = NULL),
+                  ellipse = TRUE, 
+                  ellipse.type = "convex", 
+                  repel = TRUE,
+                  ggtheme = theme_classic(base_size = 9),
+                  parse = TRUE)
+  #eigen <- eigen(data1$RD_out)
+  
+  joint_plot_1 <- ggarrange(ggarrange(p1, p2, 
+                                      ncol = 1, align = "hv",
+                                      labels = c("a", "b"),
+                                      font.label = list(size = 10, color = "black", face = "plain", family = NULL)), 
+                            p3, 
+                            ncol = 2, widths = c(1, 2),
+                            labels = c("", "c"),
+                            font.label = list(size = 10, color = "black", face = "plain", family = NULL))
+  
+  ggsave(joint_plot_1, filename = sprintf("%s/%s", write_at, "core_set_joint.png"),
+         width = 16.8, height = 12, units = "cm", dpi = 600, bg = "white")
+  
+  joint_plot_2 <- ggarrange(p4, p5, 
+                            ncol = 2, widths = c(0.8, 1),
+                            labels = c("d", "e"),
+                            font.label = list(size = 10, color = "black", face = "plain", family = NULL))
+  joint_plot_2_ann <- annotate_figure(joint_plot_2,
+                  bottom = text_grob("Environment variable", size = 9))
+  
+  ggsave(joint_plot_2_ann, filename = sprintf("%s/%s", write_at, "feature_imp_joint.png"),
+         width = 16.8, height = 8.4, units = "cm", dpi = 600, bg = "white")
+  
+  joint_plot <- ggarrange(joint_plot_1, joint_plot_2_ann, nrow = 2, align = "hv")
+  
+  ggsave(joint_plot, filename = sprintf("%s/%s", write_at, "feature_imp_plot.png"),
+         width = 16.8, height = 16.8, units = "cm", dpi = 600, bg = "white")
+  
+  # Generate output
+  out <- list()
+  out[["joint_plot_1"]] <- joint_plot_1
+  out[["joint_plot_2"]] <- joint_plot_2
+  out[["pc_RD"]] <- pc
+  out[["pco_data"]] <- pco_data
+  
+  return(out)
 }

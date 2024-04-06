@@ -49,3 +49,26 @@ list(
   )
 )
 
+# For Gmatrix
+#Initial data: 
+#  Number of Individuals: 14167 
+#Number of Markers: 9797 
+#-
+#  Missing data check: 
+#  Total SNPs: 9797 
+#0 SNPs dropped due to missing data threshold of 0.5 
+#Total of: 9797  SNPs 
+#|
+#  MAF check: 
+#  1429 SNPs dropped with MAF below 0.05 
+#Total: 8368  SNPs 
+#\
+#Monomorphic check: 
+#  No monomorphic SNPs 
+#-
+#  Heterozigosity data check: 
+#  No SNPs with heterozygosity, missing threshold of =  0 
+#
+#Summary check: 
+#  Initial:  9797 SNPs 
+#Final:  8368  SNPs ( 1429  SNPs removed) 

@@ -393,7 +393,7 @@ generate_kinships <- function(data, write_at){
       sep = "\n",
       append = T)
   save_at_a <- sprintf("%s/kin_a.qs", write_at)
-  g_a_kin <- Gmatrix(as.matrix(g_data), method = "VanRaden", integer = FALSE, )
+  g_a_kin <- Gmatrix(as.matrix(g_data), method = "VanRaden", integer = FALSE)
   qsave(g_a_kin, save_at_a)
   
   # Compute and save G_aa_mat
@@ -539,8 +539,46 @@ add_deduplication_info <- function(existing_data,
   
   rm(list = setdiff(ls(), c("data_mod", "log_at", "out")))
   
+  # Generate overview
+  before_dedup <- data_mod %>% distinct(Series, Geno_new) %>%
+    mutate(present = 1) %>%
+    pivot_wider(id_cols = "Geno_new", names_from = "Series", values_from = "present") %>%
+    select(-Geno_new)
+  
+  after_dedup <-  data_mod %>% distinct(Series, Geno_dedup) %>%
+    mutate(present = 1) %>%
+    pivot_wider(id_cols = "Geno_dedup", names_from = "Series", values_from = "present") %>%
+    select(-Geno_dedup)
+  series <- colnames(before_dedup)
+  dedup_res <- matrix(NA, nrow = length(series),
+                      ncol = length(series),
+                      dimnames = list(series, series))
+  diag(dedup_res) <- 0
+  coord_before <- which(upper.tri(dedup_res, diag = F), arr.ind = T)
+  for(row in 1:nrow(coord_before)){
+    row_id <- as.integer(coord_before[row, "row"])
+    col_id <- as.integer(coord_before[row, "col"])
+    
+    data <- before_dedup[, c(rownames(dedup_res)[row_id], 
+                             colnames(dedup_res)[col_id])]
+    data$sum <- rowSums(data, na.rm = T)
+    dedup_res[row_id, col_id] <- length(which(data$sum > 1))
+  }
+  
+  coord_after <- which(lower.tri(dedup_res, diag = F), arr.ind = T)
+  for(row in 1:nrow(coord_after)){
+    row_id <- as.integer(coord_after[row, "row"])
+    col_id <- as.integer(coord_after[row, "col"])
+    
+    data <- after_dedup[, c(rownames(dedup_res)[row_id],
+                            colnames(dedup_res)[col_id])]
+    data$sum <- rowSums(data, na.rm = T)
+    dedup_res[row_id, col_id] <- length(which(data$sum > 1))
+  }
+  
   # Generate output
   out[["data_mod"]] <- data_mod
+  out[["dedup_res"]] <- dedup_res
   
   cat("Output written",
       file = sprintf("%s/preprocessing_geno_data.log", log_at),

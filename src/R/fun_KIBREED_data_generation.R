@@ -1,4 +1,12 @@
-predict_HD_incpl_env <- function(existing_data, log_at, tmp_data, hd_pred_at){
+record_raster_grob <- function(width, height, dpi = 300, expr){
+  t <- tempfile(fileext = ".png")
+  on.exit(unlink(t), add = TRUE)
+  png(t, width = width, height = height, res = dpi, units = "cm")
+  tryCatch( expr , finally = dev.off() )
+  grid::rasterGrob(png::readPNG(t))
+}
+
+predict_HD_incpl_env <- function(existing_data, log_at, tmp_data){
   # Core functions
   "%!in%" <- Negate("%in%")
   
@@ -22,17 +30,17 @@ predict_HD_incpl_env <- function(existing_data, log_at, tmp_data, hd_pred_at){
     
     ## Filter markers based on if there are hybrids or inbred in the population
     
-    if(hybrids){
-      parents <- p_data %>% filter(Type != "Hybrid") %>% pull(orig)
-      maf <- apply(A_matrix[parents, ], 2, function(x) mean(x)/2)
-    } else{
-      maf <- apply(A_matrix, 2, function(x) mean(x)/2)
-    }
+    #if(hybrids){
+    #  parents <- p_data %>% filter(Type != "Hybrid") %>% pull(orig)
+    #  maf <- apply(A_matrix[parents, ], 2, function(x) mean(x)/2)
+    #} else{
+    #  maf <- apply(A_matrix, 2, function(x) mean(x)/2)
+    #}
+    #
+    #useful_markers <- names(maf[which(maf > 0.05 & maf < 0.95)]) # no need to filter since the input matrix is already filtered
     
-    useful_markers <- names(maf[which(maf > 0.05 & maf < 0.95)])
-    
-    A_matrix_fil <- A_matrix[p_data %>% pull(orig) %>% as.vector(), useful_markers]
-    D_matrix_fil <- D_matrix[p_data %>% pull(orig) %>% as.vector(), useful_markers]
+    A_matrix_fil <- A_matrix[p_data %>% pull(orig) %>% as.vector(), ]
+    D_matrix_fil <- D_matrix[p_data %>% pull(orig) %>% as.vector(), ]
     
     if(!dir.exists(write_at)){
       dir.create(write_at)
@@ -143,25 +151,21 @@ predict_HD_incpl_env <- function(existing_data, log_at, tmp_data, hd_pred_at){
       append = T)
   
   # Make predictions
-  if(!exists("hd_pred_at")){
-    RhpcBLASctl::blas_set_num_threads(1)
-    c1 <- makeCluster(length(n_cases), type = "FORK", outfile = sprintf("%s/%s", tmp_data, "cluster.log"))
-    registerDoParallel(c1)
-    system.time(out_raw <- foreach(parts = n_cases,
-                                   .packages = "BGLR",
-                                   .export = "%!in%",
-                                   .combine = "rbind") %dopar%
-                  predict_hd(index = parts,
-                             A_matrix = GNdata_comb,
-                             D_matrix = GNdata_comb_2,
-                             pred_info = predict_info,
-                             pheno_data = to_impute_data,
-                             names_change_consolidated = names_change_consolidated,
-                             write_at = tmp_data)) # with a and d
-    stopCluster(c1) # 30 minutes
-  } else {
-    out_raw <- hd_pred_at
-  }
+  RhpcBLASctl::blas_set_num_threads(1)
+  c1 <- makeCluster(length(n_cases), type = "FORK", outfile = sprintf("%s/%s", tmp_data, "cluster.log"))
+  registerDoParallel(c1)
+  system.time(out_raw <- foreach(parts = n_cases,
+                                 .packages = "BGLR",
+                                 .export = "%!in%",
+                                 .combine = "rbind") %dopar%
+                predict_hd(index = parts,
+                           A_matrix = GNdata_comb,
+                           D_matrix = GNdata_comb_2,
+                           pred_info = predict_info,
+                           pheno_data = to_impute_data,
+                           names_change_consolidated = names_change_consolidated,
+                           write_at = tmp_data)) # with a and d
+  stopCluster(c1) # 30 minutes
 
   #qsave(out_raw, "~/KIBREED/results_plots/HD_pred/overview.qs")
   # Read in output
@@ -176,7 +180,7 @@ predict_HD_incpl_env <- function(existing_data, log_at, tmp_data, hd_pred_at){
     summarize(total = n(), miss_prop_HD = sum(is.na(HD))/total, .groups = "drop")
   
   # Generate output
-  rm(list = setdiff(ls(), c("data_mod_predicted", "missing_overview_post_pred", "log_at", "out", "tmp_data")))
+  rm(list = setdiff(ls(), c("data_mod_predicted", "missing_overview_post_pred", "log_at", "out", "tmp_data", "out_raw")))
   
   cat("HD data predicted. Output written",
       file = sprintf("%s/KIBREED_data_generation.log", log_at),
@@ -185,13 +189,14 @@ predict_HD_incpl_env <- function(existing_data, log_at, tmp_data, hd_pred_at){
   
   out[["log_at"]] <- log_at
   out[["tmp_data"]] <- tmp_data
+  out[["out_raw"]] <- out_raw
   out[["data_mod_predicted"]] <- data_mod_predicted
   out[["missing_overview_post_pred"]] <- missing_overview_post_pred
   
   return(out)
 }
 
-generate_KIBREED_blues <- function(data, asreml_data_at){
+generate_KIBREED_blues <- function(data){
   # Core functions
   "%!in%" <- Negate("%in%")
   
@@ -227,26 +232,66 @@ generate_KIBREED_blues <- function(data, asreml_data_at){
   log_at <- data[["log_at"]]
   tmp_data <- data[["tmp_data"]]
   kibreed_data <- data[["data_mod_predicted"]]
-  kibreed_data$Env <- as.factor(kibreed_data$Env)
-  kibreed_data$Geno_dedup <- as.factor(kibreed_data$Geno_dedup)
+  #kibreed_data$Env <- as.factor(kibreed_data$Env)
+  #kibreed_data$Geno_dedup <- as.factor(kibreed_data$Geno_dedup)
+  kibreed_data$Type <- ifelse(kibreed_data$Type != "Hybrid", "Line", "Hybrid")
+  # adjust data types
+  kibreed_data <- kibreed_data %>% 
+    convert(fct(Env, Geno_dedup, Male_dedup, Female_dedup, Type, Series)) %>%
+    mutate(BLUES_T = BLUES_dt/10) %>%
+    arrange(Env) # this means that the order of genotypes will be different win the final data
+  
   missing_overview_post_pred <- data[["missing_overview_post_pred"]]
+
+  asreml.options(maxit = 50,             
+                 workspace = "25gb",       
+                 pworkspace = "25gb",
+                 trace=T)
+  env <- asreml(fixed = BLUES_dt ~ Geno_dedup, 
+                random = ~ Env,
+                data = kibreed_data) #  takes 4.5 hours
   
+  env_BLUP_T <- asreml(fixed = BLUES_T ~ Type + Series, 
+                        random = ~ Env + 
+                          ~at(Type, "Line"):Geno_dedup + 
+                          ~at(Type, "Hybrid"):Male_dedup +
+                          ~at(Type, "Hybrid"):Female_dedup +
+                          ~at(Type, "Hybrid"):Geno_dedup +
+                          ~at(Type, "Line"):Geno_dedup:Env + 
+                          ~at(Type, "Hybrid"):Male_dedup:Env +
+                          ~at(Type, "Hybrid"):Female_dedup:Env +
+                          ~at(Type, "Hybrid"):Geno_dedup:Env,
+                        residual = ~dsum(~units | Env),
+                        data = kibreed_data) #  takes 5 minutes
   
-  if(!file.exists(asreml_data_at)){  
-    # derive across BLUEs
-    # across series blues
-    asreml.options(maxit = 50,             
-                   workspace = "25gb",       
-                   pworkspace = "25gb",
-                   trace=T)
-    env <- asreml(fixed = BLUES_dt ~ Geno_dedup, 
-                  random = ~ Env,
-                  data = kibreed_data) #  takes 4.5 hours
-    
-    qsave(env, asreml_data_at)
-  } else {
-    env <- qread(asreml_data_at)
-  }
+  env_BLUP_dt <- asreml(fixed = BLUES_dt ~ Type + Series, 
+                     random = ~ Env + 
+                       ~at(Type, "Line"):Geno_dedup + 
+                       ~at(Type, "Hybrid"):Male_dedup +
+                       ~at(Type, "Hybrid"):Female_dedup +
+                       ~at(Type, "Hybrid"):Geno_dedup +
+                       ~at(Type, "Line"):Geno_dedup:Env + 
+                       ~at(Type, "Hybrid"):Male_dedup:Env +
+                       ~at(Type, "Hybrid"):Female_dedup:Env +
+                       ~at(Type, "Hybrid"):Geno_dedup:Env,
+                     residual = ~dsum(~units | Env),
+                     data = kibreed_data) #  takes 0.5 hours
+  
+  var <- summary(env_BLUP_dt)$varcomp
+  varcomp <- var$component
+  names(varcomp) <- rownames(var)
+  err <- sum(varcomp[grep("!R", rownames(var))])/length(grep("!R", rownames(var)))
+  
+  test_lines <- kibreed_data %>% filter(Type == "Line") %>% distinct(Env, Geno_dedup) %>% 
+    count(Geno_dedup) %>% summarize(mean_env = mean(n)) %>% as.numeric()
+  test_hybrid <- kibreed_data %>% filter(Type == "Hybrid") %>% distinct(Env, Geno_dedup) %>% 
+    count(Geno_dedup) %>% summarize(mean_env = mean(n)) %>% as.numeric()
+  
+  line_var <- varcomp["at(Type, Line):Geno_dedup"]
+  herit_lines <- as.numeric(line_var/ (line_var + err/test_lines))
+  
+  hybrid_var <- varcomp["at(Type, Hybrid):Male_dedup"] + varcomp["at(Type, Hybrid):Female_dedup"] + varcomp["at(Type, Hybrid):Geno_dedup"]
+  herit_hybrids <- as.numeric(hybrid_var / (hybrid_var + err/test_hybrid))
   
   blues <- data.frame(env$coefficients$fixed)
   blues.1 <- data.frame(rownames(blues),blues)
@@ -276,6 +321,9 @@ generate_KIBREED_blues <- function(data, asreml_data_at){
   # generate output
   out <- list()
   out[["log_at"]] <- log_at
+  out[["BLUE_model"]] <- env
+  out[["BLUP_model"]] <- env_BLUP_dt
+  out[["BLUP_model_T"]] <- env_BLUP_T
   out[["BLUES_acr_env"]] <- as.data.frame(BLUES_for_series)
   out[["BLUES_within_env"]] <- kibreed_data
   out[["missing_overview_post_pred"]] <- missing_overview_post_pred
@@ -319,9 +367,25 @@ write_KIBREED_data_full <- function(existing_data,
     filter(Geno_new %in% pheno_wtn_recurrent_genotypes$Geno_new)
   pheno_wtn$connect_geno_data <- generate_geno_connection(pheno_wtn, existing_data[["meta_geno"]])
   
+  ## Notes from revision of data. 
+  # 30.03.24 -  I found that for gabi wheat genomic duplication was not done correctly. i corrected it and did all the steps again till here. 
+  # The results were checked for identity to past results 
+  # BLUES_within_env - only few values in HD changed. the difference is numeric accuracy less than one so i do not change anything related to this data
+  ### check <- KIBREED_data_full$BLUES_within_env # from the function output with updated results for GABI wheat dedup
+  ### check_2 <- qread("/proj/ext_dir/qg_10_backups/zfs-auto-snap_daily-2024-03-29-0226/AGR-QG/Gogna/KIBREED_v2/results/R/KIBREED_data_generation/BLUES_within_env.qs") # results i saved from the past
+  ### identical(check[, c(1:7, 11, 13:25, 29)], check_2[, c(1:7, 11, 13:25, 29)]) # return TRUE
+  # BLUES_acr_env - This changed the most and results will be generated again. 
+  # check <- KIBREED_data_full$BLUES_acr_env
+  # check_2 <- qread("/proj/ext_dir/qg_10_backups/zfs-auto-snap_daily-2024-03-29-0226/AGR-QG/Gogna/KIBREED_v2/results/R/KIBREED_data_generation/BLUES_acr_env.qs")
+  # identical(check[, c(1:2, 4:7)], check_2[, c(1:2, 4:7)])
+  # correlation between BLUEs - 0.97
+  # all others - No change
+  
+  pheno_wtn_old <- qread("/proj/results/R/KIBREED_data_generation/old_res/BLUES_within_env.qs")
+  
   # Generate output
   out <- list()
-  out[["BLUES_within_env"]] <- pheno_wtn
+  out[["BLUES_within_env"]] <- pheno_wtn_old
   out[["BLUES_acr_env"]] <- pheno_acr
   out[["climate_data"]] <- existing_data[["env_data"]][["env_data_kibreed_raw"]]
   out[["GNdata_comb_add"]] <- existing_data[["geno_data"]][["GNdata_comb"]]
@@ -343,6 +407,7 @@ write_KIBREED_data_full <- function(existing_data,
     if (!file.exists(save_path_py)) feather::write_feather(prep_as_df_for_feather(out[[i]]), save_path_py)
     print(sprintf("done for %s", i))
   }
+
   
   # Put a log file
   if(!dir.exists(log_at)){dir.create(log_at, recursive = T)}
@@ -356,9 +421,11 @@ write_KIBREED_data_full <- function(existing_data,
 }
 
 make_plots_and_tables <- function(data,
+                                  pco_data,
+                                  pco_eig,
                                   write_path_for_R,
                                   write_path_for_Py){
-  # Sequester data
+  # Sequester data -------------------------------------------------------------
   log_at <- data[["log_at"]]
   pheno_wtn <- data[["BLUES_within_env"]]
   ERM_linear <- data[["ERM_data_linear"]]
@@ -372,54 +439,115 @@ make_plots_and_tables <- function(data,
     mutate(ids_mod = ifelse(row_number() != 1, paste0(abb, "_", row_number()), abb)) %>%
     ungroup() %>%
     select(-abb_1, -abb_2, -abb)
+  data_acr <- data[["BLUES_acr_env"]] %>% 
+    mutate(Type = ifelse(Type != "Hybrid", "Lines", "Hybrid"),
+           Series = gsub("(Exp_\\d).*", "\\1", Series, perl = TRUE))
   
   colors_years <- ec_mat %>% distinct(Year)
   n_years <- nrow(colors_years)
-  coul <- brewer.pal(n = 12, name = "Paired")[1:n_years]
+  #coul <- brewer.pal(n = 12, name = "Paired")[1:n_years]
+  coul <- c("#6EB5FF", "#1E5DAB", "#7FFF7F", "#2E8B57", "#FF6347", "#CD5C5C", "#BA55D3", "#800080", "#FFD700", "#DAA520", "#FF6961")
   colors_years$color <- coul
+  colors_years <- colors_years[order(as.numeric(colors_years$Year)),] 
   
-  ec_mat <- ec_mat %>% left_join(colors_years, by = "Year")
+  colors_years$Year_fct <- factor(colors_years$Year, levels = colors_years$Year)
+  colors_years$color_fct <- factor(colors_years$color, levels = colors_years$color)
   
-  # Check for existing directories
+  ec_mat <- ec_mat %>% left_join(colors_years %>% select(Year, color), by = "Year")
+  
+  # Check for existing directories ---------------------------------------------
   if(!dir.exists(write_path_for_R)){dir.create(write_path_for_R, recursive = T)}
   if(!dir.exists(write_path_for_Py)){dir.create(write_path_for_Py, recursive = T)}
   
-  # Make plot
-  overview <- pheno_wtn %>% distinct(Connect_at, Site, Loc, Year)
+  # Make plots -----------------------------------------------------------------
+  overview <- pheno_wtn %>% distinct(Connect_at, Site, Loc, Year) %>%
+    mutate(lat = as.numeric(gsub("(\\S+)_\\S+_\\S+_\\S+", "\\1", Connect_at)),
+           long = as.numeric(gsub("\\S+_(\\S+)_\\S+_\\S+", "\\1", Connect_at)),
+           loc = gsub("\\S+_\\S+_(\\S+)_\\S+", "\\1", Connect_at),
+           year = Year) %>%
+    left_join(colors_years, by = "Year")
   ec_mat <- ec_mat %>% filter(harvest_env %in% overview$Connect_at)
   
-  ## PCA
-  cmd <- cmdscale(as.dist(ERM_linear), eig = T,add=T)
+  ## Site Map ------------------------------------------------------------------
+  rectangle <- c(left = 1, bottom = 47, right = 18, top = 55)
+  
+  #bw_map_2 <- get_stadiamap(rectangle, zoom = 6, maptype = "stamen_toner_lite", force = TRUE)
+  bw_map_2 <- qread("/proj/results/R/KIBREED_data_generation/stadia_map.qs")
+  cluster_map <- ggmap(bw_map_2) +
+    geom_point(aes(x = long, y = lat, color = color),
+               data = overview, size = 2, shape = 13) +
+    labs(x = "Longitude", y = "Latitude") +
+    guides(color = guide_legend(title = "Year")) +
+    scale_colour_identity(guide = "legend",
+                          labels = levels(colors_years$Year_fct),
+                          breaks = levels(colors_years$color_fct))+
+    theme_classic()+
+    theme(legend.spacing.y = unit(0.25, "cm"),
+          legend.box.margin = margin(0,0,0,0, "pt"),
+          legend.key.size = unit(0.4, "cm"),
+          plot.margin = margin(5,5,0,1, "pt"),
+          legend.position = "right")
+  
+  ggsave(cluster_map, filename = sprintf("%s/%s", write_path_for_R, "cluster_map_physical.png"),
+         width = 11, height = 8.4, units = "cm", dpi = 600, bg = "white")
+  
+  ## Site PCoA -----------------------------------------------------------------
+  cmd <- cmdscale(dist(ERM_linear), eig = T, k = 3)
+  comps <- 100*(cmd$eig[1:3]/sum(cmd$eig)) 
   plot_data_0 <- tibble("x" = cmd$points[, 1],
                        "y" = cmd$points[, 2],
+                       "y2" = cmd$points[, 3],
                        "Connect_at" = rownames(cmd$points)) %>% 
       right_join(overview, by = "Connect_at") %>%
-      select(Connect_at, x, y, Site, Year) %>%
+      select(Connect_at, x, y, y2,Site, Year, color) %>%
       convert(fct(Site, Year)) %>%
       filter(!is.na(x) & !is.na(y))
   
-  outliers <- c("54.38339_10.468389_Schmoel_2015", "54.38339_10.468389_Schmoel_2013", "54.40000_9.850000_Harzhof_2012", "54.40000_9.850000_Harzhof_2013")
+  #outliers <- c("54.38339_10.468389_Schmoel_2015", "54.38339_10.468389_Schmoel_2013", "54.40000_9.850000_Harzhof_2012", "54.40000_9.850000_Harzhof_2013")
   
-  outliers_pc <- plot_data_0 %>% filter(Connect_at %in% outliers)
+  #outliers_pc <- plot_data_0 %>% filter(Connect_at %in% outliers)
   
-  plot_data_orig <- plot_data_0  %>%
-    ggplot(aes(x, y, color = Year)) +
-    geom_point() +
-    theme_classic()
+  plot_data_1 <- plot_data_0  %>%
+    ggplot(aes(x, y, color = color)) +
+    geom_point(size = 2, shape = 13) +
+    labs(x = paste0("PCo1 ", as.character(round(comps[1], 2)), "%"), 
+         y = paste0("PCo2 ", as.character(round(comps[2], 2)), "%")) +
+    guides(color = guide_legend(title = "Year")) +
+    scale_colour_identity(guide = "legend",
+                          labels = levels(colors_years$Year_fct),
+                          breaks = levels(colors_years$color_fct)) +
+    theme_classic(base_size = 10) +
+    theme(legend.spacing.y = unit(0, "pt"),
+          legend.box.margin = margin(0,0,0,0, "pt"),
+          legend.key.size = unit(0.5, "cm"),
+          #legend.position = "none",
+          plot.margin = margin(0,0,0,0, "pt")) +
+    coord_fixed(xlim = c(-5, 5), ylim = c(-5, 5))
   
-  plot_data_no_extreme <- plot_data_0  %>%
-    anti_join(outliers_pc, by = colnames(outliers_pc)) %>%
-    ggplot(aes(x, y, color = Year)) +
-    geom_point() +
-    theme_classic()
+  plot_data_2 <- plot_data_0  %>%
+    ggplot(aes(x, y2, color = color)) +
+    geom_point(size = 2, shape = 13) +
+    labs(x = paste0("PCo1 ", as.character(round(comps[1], 2)), "%"), 
+         y = paste0("PCo3 ", as.character(round(comps[3], 2)), "%")) +
+    guides(color = guide_legend(title = "Year")) +
+    scale_colour_identity(guide = "legend",
+                          labels = levels(colors_years$Year_fct),
+                          breaks = levels(colors_years$color_fct))+
+    theme_classic(base_size = 10)+
+    theme(legend.spacing.y = unit(0, "pt"),
+          legend.box.margin = margin(0,0,0,0, "pt"),
+          legend.key.size = unit(0.5, "cm"),
+          #legend.position = "none",
+          plot.margin = margin(0,0,0,0, "pt"))  +
+    coord_fixed(ylim = c(-5, 5), xlim = c(-5, 5))
   
-  plot_data <- ggarrange(plot_data_orig, plot_data_no_extreme, labels = c("a", "b"),
-                         ncol = 1, common.legend = T, legend = "right")
+  plot_data <- ggarrange(plot_data_1, plot_data_2, legend = "right",
+                         ncol = 2, nrow = 1, align = "hv", common.legend = TRUE)
   
-  ggsave(plot_data, filename = sprintf("%s/%s", write_path_for_R, "env_pca_plot.png"),
-         width = 16.8, height = 16.8, units = "cm", dpi = 600, bg = "white")
+  ggsave(plot_data_1, filename = sprintf("%s/%s", write_path_for_R, "env_pca_plot.png"),
+         width = 8.4, height = 7.4, units = "cm", dpi = 600, bg = "white")
   
-  ## Phylogenetic analysis
+  ## Site phylogenetic analysis ------------------------------------------------
   ec_mat_plot <- ec_mat %>% select(-harvest_env, -env, -color, -Year, -Site, -ids_mod) %>% 
     as.data.frame() 
   rownames(ec_mat_plot) <- ec_mat$ids_mod
@@ -428,14 +556,14 @@ make_plots_and_tables <- function(data,
   tree_data <- ec_mat_plot_scaled %>% 
     dist(method = "euclidean") %>% 
     hclust() %>% as.dendrogram() %>%
-    set("branches_lwd", c(3,2,3)) %>%
+    set("branches_lwd", c(2,1,2)) %>%
     set("branches_lty", c(1,1,3,1,1,2)) %>%
     set("labels_cex", c(.9,1.2))
   label_order = data.frame("ids_mod" = tree_data %>% labels) 
   colors_to_use <- label_order %>% 
     left_join(ec_mat %>% distinct(harvest_env, ids_mod, color), 
               by = "ids_mod") %>%
-    mutate(color = ifelse(harvest_env %in% outliers, "#000000", color)) %>%
+    #mutate(color = ifelse(harvest_env %in% outliers, "#000000", color)) %>%
     pull(color) %>% as.vector()
   labels_colors(tree_data) <- colors_to_use
   
@@ -443,18 +571,142 @@ make_plots_and_tables <- function(data,
 
   #ggplot(ggd1, labels = FALSE) + scale_y_reverse(expand = c(0.2, 0)) + coord_polar(theta="x")
   
-  pdf(sprintf("%s/%s", write_path_for_R, "env_phylo_plot.pdf"), width = 9.5, height = 9.5)
-  par(mar = c(2,2,2,2), bg=NA)
-  (cic_plot <- circlize_dendrogram(tree_data))
-  dev.off()
+  cic_dend <-  record_raster_grob(8.4, 8.4, 600, expr = {
+    par(mfrow=c(1,1), mar = c(2,2.25,2.1,2), bg="white", xpd = NA, cex = 0.7) #(b,l,t,r)
+    circlize_dendrogram(tree_data, labels = TRUE)
+  })
   
-  #combi_plot <- ggarrange(plot_data_orig, plot_data_no_extreme, cic_plot,
-  #                        labels = c("a", "b"), common.legend = T, legend = "right")
+  ggsave(wrap_elements(cic_dend), filename = sprintf("%s/%s", write_path_for_R, "env_dend.png"),
+         width = 8.4, height = 8.4, units = "cm", dpi = 600, bg = "white")
+  
+  ## Genetic divergence Fst plot -----------------------------------------------
+  parent_path <- "/proj/ext_dir/KIBREED/dump/fst/"
+  fst_val <- "weighted"
+  files_0 <- list.files(parent_path)
+  files <- grep("kibreed_gmat.m_m_0.5.Beagle.fst\\S+\\.log", files_0, value = T, perl = T)
+  mat_out <- matrix(NA, 7, 7, dimnames = list(paste0("Exp_", 1:7), paste0("Exp_", 1:7)))
+  for(i in files){
+    data <- readLines(paste0(parent_path, i))
+    coord_row <- as.numeric(gsub(".*fst\\.(\\d+)\\.(\\d+)\\.log", "\\1", i, perl = T))
+    coord_col <- as.numeric(gsub(".*fst\\.(\\d+)\\.(\\d+)\\.log", "\\2", i, perl = T))
+    mat_out[coord_row, coord_col] <- as.numeric(gsub(paste0(".*", fst_val," Fst estimate\\: (-?\\d+)"), 
+                                                     "\\1", 
+                                                     grep(paste0(fst_val," Fst"), data, value = T), 
+                                                     perl = T))
+  }
+  
+  mat_out[upper.tri(mat_out)] <- t(mat_out)[upper.tri(t(mat_out), diag = F)]
+  diag(mat_out) <- 0
+  
+  # with dendextend
+  dend_ob <- as.dendrogram(hclust(as.dist(mat_out))) %>%
+    set("branches_lwd", 2) %>%
+    set("labels_cex", 0.5) %>%
+    hang.dendrogram()
+  all_col <- brewer.pal(n = 8, name = "Dark2")
+  dend_label_order = data.frame("ids_mod" = c(dend_ob %>% labels, "multi"),
+                                color = all_col)
+  labels_colors(dend_ob) <- dend_label_order$color[1:7]
+  fst_plot <- record_raster_grob(8.4, 4, 300, expr = {
+    par(mfrow=c(1,1), mar = c(1.5,0,1,2), bg="white", xpd = NA, cex = 1.5, tcl = NA, mgp = c(0, 0, 0))
+    dend_ob %>% 
+      color_branches(col = dend_label_order$color[1:7]) %>%
+      plot(cex.axis=0.5, horiz = T)})
+  
+  ggsave(wrap_elements(fst_plot), filename = sprintf("%s/%s", write_path_for_R, "fst_dend.png"),
+         width = 8.4, height = 8.4, units = "cm", dpi = 600, bg = "white")
+  
+  ## Genetic PCoA plot ---------------------------------------------------------
+  dend_label_ordered <- dend_label_order %>% arrange(ids_mod)
+  
+  pco_data_col <- pco_data %>% left_join(dend_label_order, by = c("Series" = "ids_mod"))
+  pc_eig <- round(100*(pco_eig[1:2]/sum(pco_eig)), 2)
+  
+  pco_data_1 <- pco_data_col %>% filter(!in_core) %>%
+    filter(Series != "Exp_6")
+  
+  pco_data_2 <- pco_data_col %>% filter(!in_core) %>%
+    filter(Series == "Exp_6")
+  
+  pco_data_3 <- pco_data %>% filter(in_core)
+  
+  pco_plot <- pco_data_2 %>%
+    ggplot(aes(x = V1, y = V2, color = color))+
+    geom_point(size = 0.3, alpha = 0.5) +
+    geom_point(aes(x = V1, y = V2, color = color), size = 0.3, alpha = 0.5,
+               data = pco_data_1) +
+    geom_point(aes(x = V1, y = V2), color = "red", size = 0.3, shape = 4,
+               data = pco_data_3) +
+    labs(x = paste0("PCo1 ", pc_eig[1], " %"), 
+         y = paste0("PCo2 ", pc_eig[2], " %")) +
+    scale_colour_identity(guide = "legend",
+                          labels = dend_label_ordered$ids_mod,
+                          breaks = dend_label_ordered$color) +
+    coord_fixed(xlim = c(-0.2, 0.3), ylim = c(-0.2, 0.3)) +
+    theme_classic(base_size = 10) +
+    theme(legend.position = "bottom",
+          legend.spacing.x = unit(0, "pt"),
+          legend.spacing.y = unit(0, "pt"),
+          legend.box.margin = margin(t = -10, r = 0, b = 0, l = 0, "pt"),
+          legend.key.size = unit(0.5, "cm"),
+          plot.margin = margin(0,0,0,0, "pt")) +
+    guides(colour = guide_legend(override.aes = list(size=2),
+                                 title = "Series"))
+  
+  ggsave(pco_plot, filename = sprintf("%s/%s", write_path_for_R, "RD_PCo.png"),
+         width = 8.4, height = 8.4, units = "cm", dpi = 600, bg = "white")
+  
+#  layout <- "
+#AABBB
+#AADDD
+#CCDDD
+#CCEEE
+#"
+
+  #(plot_data_2 + plot_layout(tag_level = 'new')) 
+#  joint_plot <- cluster_map + 
+#    (plot_data_1 + coord_fixed()) +
+#    wrap_elements(cic_dend) + 
+#    #wrap_elements(panel = textGrob('Here are some text')) +
+#    (pco_plot + coord_fixed()) +
+#    fst_plot +
+#    plot_annotation(tag_levels = "a") + 
+#    plot_layout(design = layout)
+  
+  joint_plot <- cluster_map + labs(tag = 'a') +
+    #plot_data_1 + 
+    pco_plot + labs(tag = 'c') +
+    wrap_elements(cic_dend) + labs(tag = 'b') + 
+    #wrap_elements(panel = textGrob('Here are some text')) +
+    fst_plot + labs(tag = 'd') +
+    #plot_annotation(tag_levels = "a") + 
+    plot_layout(nrow = 2, ncol = 2, heights = c(1, 1), widths = c(1, 1))
+  
+  ggsave(joint_plot, filename = sprintf("%s/%s", write_path_for_R, "env_phylo_plot.png"),
+         width = 16.8, height = 12, units = "cm", dpi = 600, bg = "white")
+  
+  # supplementary figure -------------------------------------------------------
+  data_acr_means <- data_acr %>% 
+    aggregate(BLUEs ~ Series + Type, ., function(i) round(mean(i), 3)) %>%
+    mutate(value = ifelse(BLUEs > 1, round(BLUEs, 2), NA))
+  
+  supp_plot <- data_acr %>% ggplot(aes(x = Type, y = BLUEs, color = Type)) + 
+    geom_boxplot() + 
+    labs(x = "", y = "Grain yield (Quintals per hectare)") +
+    facet_wrap(~ Series) + 
+    geom_text(aes_string(label = "value", y = 30), 
+              data = data_acr_means, position = position_dodge(1), show.legend = FALSE) + 
+    coord_cartesian(ylim = c(20, 110)) + 
+    theme_classic()
+  
+  ggsave(supp_plot, filename = sprintf("%s/%s", write_path_for_R, "BLUEs_plot.png"),
+         width = 16.8, height = 16.8, units = "cm", dpi = 600, bg = "white")
   
   # produce output
   out <- list()
   out[["pca_plot"]] <- plot_data
-  out[["phylo_plot"]] <- cic_plot
+  out[["phylo_plot"]] <- cic_dend
+  out[["combined_plot"]] <- joint_plot
   
   return(out)
 }

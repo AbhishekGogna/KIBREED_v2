@@ -210,7 +210,7 @@ make_cv_plots <- function(data, data_means,
     geom_hline(yintercept  = 0.5, linetype ="dashed", color = "blue") + 
     geom_text(aes_string(label = text_at, y = text_at_y), data = data_means, 
               angle = 67.5, size = 3, position = position_dodge(1), show.legend = FALSE)+
-    labs(x = "", y = "mean_correlation") +
+    labs(x = labs_x, y = labs_y, color = "Type") +
     theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
   return(wtn_cv_plot)
 }
@@ -400,42 +400,42 @@ load_pred_data <- function(data, write_at, geno_mapping_from){
   }
 
   ## acr_st
-  pred_data_files_acr_st <- pred_data_meta %>% filter(pred_check == TRUE) %>%
-    filter(grepl("cv_acr_str|acr_st", pred_paths)) %>%
-    pull(pred_paths) %>% as.vector()
-  #acr_st_res <- c(lapply(pred_data_files_acr_st[grepl("results/R", pred_data_files_acr_st)],
-  #                load_and_process_pred_files_R),
-  #                lapply(pred_data_files_acr_st[grepl("results/Py", pred_data_files_acr_st)],
-  #                load_and_process_pred_files_Py))
-  
-  acr_st_res <- load_files_parallel(r_files = pred_data_files_acr_st[grepl("results/R", pred_data_files_acr_st)],
-                                     py_files = pred_data_files_acr_st[grepl("results/Py", pred_data_files_acr_st)])
-  acr_st_res_df_0 <- do.call(rbind, lapply(acr_st_res, function(x) x[["acc"]]))
-  
-  if(!is.null(acr_st_res_df_0)){
-    acr_st_res_df <- acr_st_res_df_0 %>%
-      left_join(model_renames_acr, by = "model_idx") %>%
-      mutate(name = ifelse(is.na(name), model_idx, name))
-    uq_names <- unique(acr_st_res_df$name)
-    uq_renames_R <- unique(model_renames_acr$name[c(1:3)])
-    uq_renames_Py <- uq_names[uq_names %!in% uq_renames_R]
-    acr_st_res_df$name <- factor(acr_st_res_df$name, levels = c(uq_renames_R, uq_renames_Py))
-    
-    acr_st_res_df_means <- acr_st_res_df %>% filter(val_type == "cor_val") %>%
-      aggregate(value ~ run_type + name + type, ., function(i) round(mean(i), 3)) %>%
-      convert(fct(run_type, name, type))
-    acr_st_plot <- ggplot(acr_st_res_df %>% filter(val_type == "cor_val"),
-                          aes(x = name, y = value, color = type)) +
-      geom_boxplot()+
-      theme_classic()+
-      coord_cartesian(ylim = c(0, 1)) + 
-      geom_hline(yintercept  = 0.75, linetype ="dashed", color = "red") + 
-      geom_text(aes(label = value, y = 0.1), data = acr_st_res_df_means, 
-                angle = 90, size = 3, position = position_dodge(1), show.legend = FALSE)+
-      labs(x = "", y = "correlation")
-  } else {
-    acr_st_plot <- NULL
-  }
+  #pred_data_files_acr_st <- pred_data_meta %>% filter(pred_check == TRUE) %>%
+  #  filter(grepl("cv_acr_str|acr_st", pred_paths)) %>%
+  #  pull(pred_paths) %>% as.vector()
+  ##acr_st_res <- c(lapply(pred_data_files_acr_st[grepl("results/R", pred_data_files_acr_st)],
+  ##                load_and_process_pred_files_R),
+  ##                lapply(pred_data_files_acr_st[grepl("results/Py", pred_data_files_acr_st)],
+  ##                load_and_process_pred_files_Py))
+  #
+  #acr_st_res <- load_files_parallel(r_files = pred_data_files_acr_st[grepl("results/R", pred_data_files_acr_st)],
+  #                                   py_files = pred_data_files_acr_st[grepl("results/Py", pred_data_files_acr_st)])
+  #acr_st_res_df_0 <- do.call(rbind, lapply(acr_st_res, function(x) x[["acc"]]))
+  #
+  #if(!is.null(acr_st_res_df_0)){
+  #  acr_st_res_df <- acr_st_res_df_0 %>%
+  #    left_join(model_renames_acr, by = "model_idx") %>%
+  #    mutate(name = ifelse(is.na(name), model_idx, name))
+  #  uq_names <- unique(acr_st_res_df$name)
+  #  uq_renames_R <- unique(model_renames_acr$name[c(1:3)])
+  #  uq_renames_Py <- uq_names[uq_names %!in% uq_renames_R]
+  #  acr_st_res_df$name <- factor(acr_st_res_df$name, levels = c(uq_renames_R, uq_renames_Py))
+  #  
+  #  acr_st_res_df_means <- acr_st_res_df %>% filter(val_type == "cor_val") %>%
+  #    aggregate(value ~ run_type + name + type, ., function(i) round(mean(i), 3)) %>%
+  #    convert(fct(run_type, name, type))
+  #  acr_st_plot <- ggplot(acr_st_res_df %>% filter(val_type == "cor_val"),
+  #                        aes(x = name, y = value, color = type)) +
+  #    geom_boxplot()+
+  #    theme_classic()+
+  #    coord_cartesian(ylim = c(0, 1)) + 
+  #    geom_hline(yintercept  = 0.75, linetype ="dashed", color = "red") + 
+  #    geom_text(aes(label = value, y = 0.1), data = acr_st_res_df_means, 
+  #              angle = 90, size = 3, position = position_dodge(1), show.legend = FALSE)+
+  #    labs(x = "", y = "correlation")
+  #} else {
+  #  acr_st_plot <- NULL
+  #}
   
   ## acr_sce
   
@@ -627,7 +627,16 @@ load_pred_data <- function(data, write_at, geno_mapping_from){
     wtn_cv_res_df <- wtn_cv_res_df_climate_based %>% 
       bind_rows(wtn_cv_res_df_cgm_based) %>%
       #anti_join(filter_data, by = colnames(filter_data)) %>%
-      convert(fct(label, type))
+      convert(fct(label, type)) %>%
+      mutate(model_idx = case_when(
+        model_idx == "wtn_CNN_CGM_EC" ~ "CNN_GS",
+        model_idx == "wtn_CNN_EC" ~ "CNN_EC",
+        .default = as.character(model_idx)
+      ),
+      type = case_when(
+        type == "Non_hybrid" ~ "Lines",
+        .default = as.character(type)
+      ))
     
     wtn_cv_res_df$cv_idx <- factor(wtn_cv_res_df$cv_idx, levels = c("cv1", "cv2", "cv3", "cv4"))
     uq_names <- unique(wtn_cv_res_df$name)
@@ -635,7 +644,7 @@ load_pred_data <- function(data, write_at, geno_mapping_from){
     uq_renames_Py <- as.vector(uq_names[uq_names %!in% uq_renames_R])
     uq_renames <- c(uq_renames_R, uq_renames_Py)
     wtn_cv_res_df$name <- factor(wtn_cv_res_df$name, levels = uq_renames)
-    wtn_cv_res_df$model_idx <- factor(wtn_cv_res_df$model_idx, levels = c("M_1", "M_2", "M_3", "M_4", "M_5", "M_6", "wtn_CNN_EC", "M_7", "M_8", "M_9", "M_10", "wtn_CNN_CGM_EC", "CGM_only"))
+    wtn_cv_res_df$model_idx <- factor(wtn_cv_res_df$model_idx, levels = c("M_1", "M_2", "M_3", "M_4", "M_5", "M_6", "CNN_EC", "M_7", "M_8", "M_9", "M_10", "CNN_GS", "CGM_only"))
     base_model <- "e&G"
     to_remove <- "e&g"
     #int_models <- model_renames$name[c(3:10)]
@@ -672,7 +681,7 @@ load_pred_data <- function(data, write_at, geno_mapping_from){
                                  x_lab = "model_idx", y_lab = "value", col_lab = "type", 
                                  ylim = c(-0.2, 1), facet_at = "cv_idx", 
                                  text_at = "value", text_at_y = 0.9,
-                                 labs_x = "", labs_y = "mean_correlation")
+                                 labs_x = "", labs_y = "Mean correlation")
     
     plot_no_cgm_diff <- make_cv_plots(data = wtn_cv_res_df_2, 
                                    data_means = wtn_cv_res_df_means_2,
@@ -698,7 +707,7 @@ load_pred_data <- function(data, write_at, geno_mapping_from){
                               x_lab = "model_idx", y_lab = "value", col_lab = "type",
                               ylim = c(-0.2, 1), facet_at = "cv_idx",
                               text_at = "value", text_at_y = 0.9,
-                              labs_x = "", labs_y = "mean_correlation")
+                              labs_x = "", labs_y = "Mean correlation")
     
     plot_cgm_diff <- make_cv_plots(data = wtn_cv_res_df_2 %>%
                                      filter(!is.na(value)),
@@ -793,14 +802,19 @@ load_pred_data <- function(data, write_at, geno_mapping_from){
   pred_param$type <- factor(pred_param$type, levels = c("rep", "train_set_cor_avg", "test_set_cor_avg"))
   pred_param_means <- pred_param %>%
     aggregate(value ~ param_new + type, ., function(i) format(round(mean(i), 2), nsmall = 2))
+  type.labs <- c("Repetabilities", "Mean train set correlation", "Mean test set correlation")
+  names(type.labs) <- c("rep", "train_set_cor_avg", "test_set_cor_avg")
   pred_param_plot <- pred_param %>%
     ggplot(aes(x = param_new, y = value)) +
     coord_cartesian(ylim = c(-0.5, 1.4))+
     geom_boxplot(lwd = 0.65, outlier.size = 0.5) +
     geom_text(aes(label = value, y = 1.25), data = pred_param_means, 
               angle = 90, size = 3, position = position_dodge(1), show.legend = FALSE) +
-    facet_wrap(~type, ncol = 1) +
-    theme(axis.text.x = element_text(angle = 90, vjust = 1, hjust=1))
+    facet_wrap(~type, 
+               ncol = 1,
+               labeller = labeller(type = type.labs)) +
+    theme(axis.text.x = element_text(angle = 90, vjust = 1, hjust=1)) +
+    labs(x = "Parameters", y = "Values")
 
   # Produce output
   out <- list()
@@ -808,7 +822,7 @@ load_pred_data <- function(data, write_at, geno_mapping_from){
   out[["pred_data_meta"]] <- pred_data_meta 
   out[["param_meta"]] <- pred_param_means 
   out[["plot_acr_cv"]] <- acr_cv_plot
-  out[["plot_acr_st"]] <- acr_st_plot
+  #out[["plot_acr_st"]] <- acr_st_plot
   out[["plot_acr_sce_1"]] <- plot_acr_sce_1
   out[["plot_acr_sce_2"]] <- plot_acr_sce_2
   out[["plot_wtn_no_cgm"]] <- plot_no_cgm

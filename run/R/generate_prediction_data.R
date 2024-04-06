@@ -109,17 +109,17 @@ list(
                                    input_data_at = c(sprintf("%s", core_paths[["results_R"]])),
                                    model_info = acr_models)
   ),
-  tar_target(
-    name = cv_acr_str_data,
-    command = cv_acr_str(data = pred_acr_objects, runs = 50, take_parts = TRUE)
-  ),
-  tar_target(
-    name = run_scripts_acr_str,
-    command = generate_run_scripts(data = cv_acr_str_data,
-                                   run_script_at = c(sprintf("%s/scr_genomic_prediction_acr.R", core_paths[["src_R"]])),
-                                   input_data_at = c(sprintf("%s", core_paths[["results_R"]])),
-                                   model_info = acr_models)
-  ),
+  #tar_target(
+  #  name = cv_acr_str_data,
+  #  command = cv_acr_str(data = pred_acr_objects, runs = 50, take_parts = TRUE)
+  #),
+  #tar_target(
+  #  name = run_scripts_acr_str,
+  #  command = generate_run_scripts(data = cv_acr_str_data,
+  #                                 run_script_at = c(sprintf("%s/scr_genomic_prediction_acr.R", core_paths[["src_R"]])),
+  #                                 input_data_at = c(sprintf("%s", core_paths[["results_R"]])),
+  #                                 model_info = acr_models)
+  #),
   tar_target(
     name = cv_acr_sce_data,
     command = cv_acr_sce(data = pred_acr_objects, take_parts = FALSE)

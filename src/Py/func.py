@@ -387,10 +387,10 @@ def CNN_net_flex(hp, model_name, base_layer, max_layer, n_in = None, ec_layer = 
     
     # modify input lists if tuning is to be done
     if tuning:
-        layer_units = [tuner_obj_int(hp, f'l_u_d_{x}', x) for x in layer_units]
-        kernel_sizes = [tuner_obj_int(hp, f'k_s_d_{x}', x) for x in kernel_sizes]
-        pool_sizes = [tuner_obj_int(hp, f'p_s_d_{x}', x) for x in pool_sizes]
-        strides = [tuner_obj_int(hp, f's_d_{x}', x) for x in strides]
+        layer_units = [tuner_obj_int(hp, f'l_u_d_{x}', x) for x in range(layer_units)]
+        kernel_sizes = [tuner_obj_int(hp, f'k_s_d_{x}', x) for x in range(kernel_sizes)]
+        pool_sizes = [tuner_obj_int(hp, f'p_s_d_{x}', x) for x in range(pool_sizes)]
+        strides = [tuner_obj_int(hp, f's_d_{x}', x) for x in range(strides)]
     
     # define model inputs
     if n_in is not None:

@@ -884,38 +884,3 @@ produce_plots <- function(raw_data, processed_data, tag,
   }
   return(out)
 }
-
-
-#convert_to_dataframe <- function(all_rep) {
-#  # Initialize empty vectors to store data
-#  element_name <- character()
-#  location <- character()
-#  value <- numeric()
-#  # Iterate through the elements of 'all_rep'
-#  for (element in names(all_rep)) {
-#    if (!any(is.na(all_rep[[element]]))) {
-#      # Get the location names
-#      locations <- all_rep[[element]][, "Location"]
-#      # Get the repeatability values
-#      repeatability <- as.numeric(all_rep[[element]][, "repeatability"])
-#      # Append data to the vectors
-#      element_name <- c(element_name, rep(element, length(locations)))
-#      location <- c(location, locations)
-#      value <- c(value, repeatability)
-#      } else {element_name <- c(element_name, element)
-#      location <- c(location, NA)
-#      value <- c(value, NA)}
-#    }
-#     
-#  # Create a dataframe
-#  dataframe <- data.frame(element_name, location, value)
-#  return(dataframe)
-#}
-#all_rep_2020 <- convert_to_dataframe(lapply(BLUEs_kws_2020_data$BLUES_traits_V2, function(x) x[["Repeatability"]]))
-#all_rep_2020$year <- "2020"
-#all_rep_2021 <- convert_to_dataframe(lapply(BLUEs_kws_2021_data$BLUES_traits_V2, function(x) x[["Repeatability"]]))
-#all_rep_2021$year <- "2021"
-#all_rep <- rbind(all_rep_2020, all_rep_2021) %>% filter(!grepl("height", element_name))
-#all_rep %>% filter(!is.na(value)) %>% 
-#  mutate(trait = gsub("BLUEs_\\S\\S\\_(\\S+)", "\\1", element_name)) %>% group_by(trait) %>%
-#  summarise(mean_rep = mean(value), min = min(value), max = max(value))

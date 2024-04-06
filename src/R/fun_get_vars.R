@@ -631,3 +631,77 @@ get_vars <- function(existing_data,
   return(out)
   
 }
+make_acr_plots <- function(linked_proj,
+                           data) {
+  # Sequester data
+  log_file <- data[["log_file"]]
+  write_at <- data[["write_at"]]
+  var_plot <- data[["plot_vars_pheno_data_acr"]]+
+    scale_x_discrete(labels=c("M_1" = "GBLUP", "M_2" = "GBLUP_D", "M_3" = "E-GBLUP_D")) + 
+    ylab("Proportion explained") +
+    xlab("Model") +
+    theme_classic(base_size = 10) +
+    theme(axis.text.x = element_text(angle = 11.25, vjust = 0.5))
+  pred_data <- tar_read(pred_data, store = sprintf("/proj/store/%s", linked_proj))
+  acr_pred_data <- pred_data[grep("acr", names(pred_data))]
+  
+  # Produce plots
+  p1_data <- acr_pred_data$plot_acr_cv$data %>%
+    filter(name %in% c("E-GBLUP_D", "acr_CNN")) %>%
+    mutate(type = as.factor(ifelse(type == "Non_hybrid", "Lines", "Hybrid")))
+  p1_data_2 <- acr_pred_data$plot_acr_cv$layers[[3]]$data %>%
+    filter(name %in% c("E-GBLUP_D", "acr_CNN")) %>%
+    mutate(type = as.factor(ifelse(type == "Non_hybrid", "Lines", "Hybrid")))
+  p1 <- ggplot(p1_data,
+               aes(x = name, y = value, color = type)) +
+    geom_boxplot()+
+    coord_cartesian(ylim = c(0.5, 1))+
+    geom_hline(yintercept  = 0.75, linetype ="dashed", color = "red") + 
+    geom_text(aes(label = value, y = 0.55), data = p1_data_2, 
+              angle = 90, size = 3, position = position_dodge(1), show.legend = FALSE)+
+    labs(x = "Model", y = "Mean correlation", color = "Type")+
+    theme_classic(base_size = 10) +
+    scale_fill_manual(values = c("grey", "white"))
+  
+  p2_data <- acr_pred_data$plot_acr_sce_1$data %>%
+    filter(name %in% c("E-GBLUP_D", "acr_CNN")) %>%
+    mutate(type = as.factor(ifelse(type == "Non_hybrid", "Lines", "Hybrid")))
+  
+  p2 <- ggplot(p2_data,
+               aes(x = train_val, y = value, color = type)) +
+    geom_point(size = 0.1) +
+    coord_cartesian(ylim = c(-0.25, 1)) +
+    facet_grid(name~type) +
+    ylab("Mean correlation") +
+    xlab("Training set size") +
+    geom_smooth(method = "lm") +
+    stat_cor(aes(label =paste(after_stat(r.label), cut(after_stat(p), 
+                                                breaks = c(-Inf, 0.05, Inf),
+                                                labels = c("'*'", "''")), 
+                              sep = "~")),
+             p.accuracy = 0.01, r.accuracy = 0.01, 
+             label.x = 0, label.y = 0.9, size = 3) +
+    theme_classic(base_size = 10) +
+    scale_x_continuous(labels=function(x) format(x, big.mark = ",", scientific = FALSE)) +
+    theme(legend.position = "none") +
+    scale_fill_manual(values = c("grey", "white"))
+  
+  joint_plot_1 <- ggarrange(ggarrange(var_plot, p1, 
+                                    labels = c("a", "b"),
+                                    common.legend = FALSE,
+                                    font.label = list(size = 10, color = "black", face = "plain", family = NULL)), 
+                          p2, nrow = 2, labels = c("", "c"),
+                          font.label = list(size = 10, color = "black", face = "plain", family = NULL))
+  
+  ggsave(joint_plot_1, filename = sprintf("%s/%s", write_at, "pred_acr_res.png"),
+         width = 16.8, height = 12, units = "cm", dpi = 600, bg = "white")
+  
+  # Generate output
+  out <- list()
+  out[["log_file"]] <- log_file
+  out[["write_at"]] <- write_at
+  out[["joint_plot_1"]] <- joint_plot_1
+  
+  return(out)
+
+}

@@ -48,3 +48,10 @@ list(
     command = write_cgm_data(data = processed_cgm_data)
   )
 )
+
+#geno <- BLUES_within_env_cgm$BLUEs_within_env_cgm %>% distinct(Env, connect_geno) %>%
+#  mutate(present = 1) %>%
+#  pivot_wider(id_cols = "connect_geno", names_from = "Env", values_from = "present") %>%
+#  rowwise() %>%
+#  mutate(freq = sum(c_across(where(is.numeric)), na.rm = TRUE))
+#table(cut(geno$freq, breaks = c(0, 4, 8, 16, 32, 64))) / nrow(geno)

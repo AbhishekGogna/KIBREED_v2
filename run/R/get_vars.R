@@ -8,6 +8,7 @@ core_paths <- lapply(jsonlite::read_json(sprintf("%s/results/core_paths.json", p
 tar_option_set(packages = c("dplyr", "readr", "ggplot2", 
                             "tidyr", "reshape2", "stringr", "tibble",
                             "lubridate", "hablar", "readxl",
+                            "ggpubr",
                             "foreach", "doParallel", "logger",
                             "qs", "feather", "RColorBrewer"),
                format = "qs")
@@ -71,19 +72,25 @@ list(
                        tmp_at = sprintf("%s/%s/wtn", core_paths[["tmp_data_R"]], run_name),
                        model_info = wtn_models,
                        key = "pheno_data_wtn")
+  ),
+  tar_target(
+    name = acr_overviews,
+    command = make_acr_plots(linked_proj = "process_R_pred_data",
+                             data = var_acr)
   )
 )
 
+#mod_plot <- var_acr$plot_vars_pheno_data_acr + 
+#  scale_x_discrete(labels=c("M_1" = "GBLUP", "M_2" = "GBLUP_D", "M_3" = "E-GBLUP_D")) + 
+#  ylab("Proportion explained") + 
+#  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+#ggsave(plot = mod_plot, filename = "/proj/results/R/get_vars/pheno_data_acr_var_plot_mod.png", 
+#       width = 8.4, height = 8.4, units = "cm", dpi = 600)
 #to_table <- var_wtn$plot_vars_pheno_data_wtn$data %>% 
 #  mutate(value = round(value, 2)) %>%
 #  pivot_wider(id_cols = "type", names_from = "model", values_from = "value")
 
 #write.csv(to_table, "/proj/tmp_data/table_var.csv", row.names = F)
-
-
-
-
-
 
 
 
